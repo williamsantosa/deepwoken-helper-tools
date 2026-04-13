@@ -2,6 +2,10 @@
 
 Tool to type and relevant tools to train charisma in Deepwoken game.
 
+## Note
+
+Keep the mouse scrolled over where the input box is due to some bugginess with Windows.
+
 ## Setup
 
 1. Install Python3
