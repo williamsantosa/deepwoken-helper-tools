@@ -1,11 +1,14 @@
 {
   "auto_hotkey": "F1",
-  "input_click_x": 0.5056,
-  "input_click_y": 0.4625,
-  "ocr_left": 0.4022,
-  "ocr_top": 0.3834,
-  "ocr_right": 0.5911,
-  "ocr_bottom": 0.4585,
-  "match_threshold": 60,
-  "window_title": "Roblox"
+  "full_auto_hotkey": "F2",
+  "input_click_x": 0.5,
+  "input_click_y": 0.4644,
+  "ocr_left": 0.4078,
+  "ocr_top": 0.417,
+  "ocr_right": 0.58,
+  "ocr_bottom": 0.4565,
+  "match_threshold": 20,
+  "window_title": "Roblox",
+  "dialog_open_delay": 1.5,
+  "submit_delay": 1.5
 }

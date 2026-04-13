@@ -28,6 +28,8 @@ CATCHPHRASES = [
 # ── Default config values (overridden by config.json if present) ───────
 DEFAULTS = {
     "auto_hotkey": "F1",
+    "full_auto_hotkey": "F2",
+    "loop_hotkey": "F3",
     "input_click_x": 0.50,
     "input_click_y": 0.87,
     "ocr_left": 0.15,
@@ -36,6 +38,9 @@ DEFAULTS = {
     "ocr_bottom": 0.55,
     "match_threshold": 60,
     "window_title": "Roblox",
+    "dialog_open_delay": 1.0,
+    "submit_delay": 0.3,
+    "loop_interval": 1.0,
 }
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -44,6 +49,7 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.j
 config: dict = {}
 ocr_reader = None
 gui_app = None
+loop_running = False
 
 
 def load_config():
@@ -120,6 +126,29 @@ def detect_catchphrase(win):
     return None, score
 
 
+def focus_roblox(win):
+    """Bring the Roblox window to the foreground."""
+    try:
+        if win.isMinimized:
+            win.restore()
+        win.activate()
+    except Exception:
+        # pygetwindow.activate() can throw on some setups; fall back to a click
+        pyautogui.click(win.left + win.width // 2, win.top + win.height // 2)
+    time.sleep(0.15)
+
+
+def click_input_box(win):
+    """Click the text input box and wait for it to gain focus."""
+    click_x = win.left + int(win.width * config["input_click_x"])
+    click_y = win.top + int(win.height * config["input_click_y"])
+    pyautogui.click(click_x, click_y)
+    time.sleep(0.15)
+    # Second click to be sure — Roblox sometimes needs it
+    pyautogui.click(click_x, click_y)
+    time.sleep(0.3)
+
+
 def auto_smalltalk():
     """Full automated loop: find window -> OCR -> click input -> type -> submit."""
     update_status("Searching for Roblox window...")
@@ -129,6 +158,8 @@ def auto_smalltalk():
         update_status("ERROR: Roblox window not found")
         return
 
+    focus_roblox(win)
+
     update_status("Running OCR on speech bubble...")
     phrase, score = detect_catchphrase(win)
     if phrase is None:
@@ -137,16 +168,98 @@ def auto_smalltalk():
 
     update_status(f"Matched: \"{phrase}\" (score: {score:.0f}) — typing...")
 
-    click_x = win.left + int(win.width * config["input_click_x"])
-    click_y = win.top + int(win.height * config["input_click_y"])
-    pyautogui.click(click_x, click_y)
-    time.sleep(0.3)
-
-    pyautogui.write(phrase, interval=0.01)
+    click_input_box(win)
+    keyboard.write(phrase, delay=0.01)
     time.sleep(0.1)
-    pyautogui.press("enter")
+    keyboard.press_and_release("enter")
 
     update_status(f"Done! Typed: \"{phrase}\"")
+
+
+def full_auto_smalltalk():
+    """Fully automated: left-click NPC to open dialog, wait, OCR, type, submit."""
+    update_status("Full-auto: clicking to open dialog...")
+
+    win = find_roblox_window()
+    if win is None:
+        update_status("ERROR: Roblox window not found")
+        return
+
+    focus_roblox(win)
+
+    # Left-click the center of the window to open the NPC dialog
+    center_x = win.left + win.width // 2
+    center_y = win.top + win.height // 2
+    pyautogui.click(center_x, center_y)
+
+    time.sleep(config["dialog_open_delay"])
+
+    update_status("Full-auto: running OCR...")
+    phrase, score = detect_catchphrase(win)
+    if phrase is None:
+        update_status(f"No match found (best score: {score:.0f})")
+        return
+
+    update_status(f"Matched: \"{phrase}\" (score: {score:.0f}) — typing...")
+
+    click_input_box(win)
+    keyboard.write(phrase, delay=0.01)
+    time.sleep(config["submit_delay"])
+    keyboard.press_and_release("enter")
+
+    update_status(f"Full-auto done! Typed: \"{phrase}\"")
+
+
+def toggle_loop():
+    """Toggle the full-auto loop on/off."""
+    global loop_running
+    if loop_running:
+        loop_running = False
+        update_status("Loop stopped")
+    else:
+        loop_running = True
+        update_status("Loop started — press again to stop")
+        threading.Thread(target=_loop_worker, daemon=True).start()
+
+
+def _loop_worker():
+    """Repeatedly runs full_auto_smalltalk until loop_running is cleared."""
+    global loop_running
+    while loop_running:
+        win = find_roblox_window()
+        if win is None:
+            update_status("Loop: Roblox window not found, retrying...")
+            time.sleep(config["loop_interval"])
+            continue
+
+        focus_roblox(win)
+
+        center_x = win.left + win.width // 2
+        center_y = win.top + win.height // 2
+        pyautogui.click(center_x, center_y)
+
+        time.sleep(config["dialog_open_delay"])
+
+        if not loop_running:
+            break
+
+        phrase, score = detect_catchphrase(win)
+        if phrase is None:
+            update_status(f"Loop: no match (score: {score:.0f}), retrying...")
+            time.sleep(config["loop_interval"])
+            continue
+
+        update_status(f"Loop: typing \"{phrase}\" (score: {score:.0f})")
+
+        click_input_box(win)
+        keyboard.write(phrase, delay=0.01)
+        time.sleep(config["submit_delay"])
+        keyboard.press_and_release("enter")
+
+        time.sleep(config["loop_interval"])
+
+    loop_running = False
+    update_status("Loop stopped")
 
 
 def update_status(msg):
@@ -158,7 +271,7 @@ def update_status(msg):
 
 def type_catchphrase(index):
     time.sleep(0.5)
-    pyautogui.write(CATCHPHRASES[index], interval=0.01)
+    keyboard.write(CATCHPHRASES[index], delay=0.01)
 
 
 def setup_hotkeys():
@@ -166,6 +279,9 @@ def setup_hotkeys():
         keyboard.add_hotkey(f"{PREFIX}{i+1}", type_catchphrase, args=[i])
     keyboard.add_hotkey(config["auto_hotkey"],
                         lambda: threading.Thread(target=auto_smalltalk, daemon=True).start())
+    keyboard.add_hotkey(config["full_auto_hotkey"],
+                        lambda: threading.Thread(target=full_auto_smalltalk, daemon=True).start())
+    keyboard.add_hotkey(config["loop_hotkey"], toggle_loop)
 
 
 def capture_full_window(win):
@@ -301,9 +417,14 @@ class SettingsDialog(tk.Toplevel):
     """Modal dialog for editing runtime configuration."""
 
     TEXT_FIELDS = [
-        ("auto_hotkey",     "Auto Hotkey",              str),
-        ("window_title",    "Roblox Window Title",      str),
-        ("match_threshold", "Match Threshold (0-100)",  int),
+        ("auto_hotkey",       "Auto Hotkey (OCR only)",     str),
+        ("full_auto_hotkey",  "Full-Auto Hotkey",           str),
+        ("loop_hotkey",       "Loop Hotkey (start/stop)",   str),
+        ("window_title",      "Roblox Window Title",        str),
+        ("match_threshold",   "Match Threshold (0-100)",    int),
+        ("dialog_open_delay", "Dialog Open Delay (sec)",    float),
+        ("submit_delay",      "Submit Delay (sec)",         float),
+        ("loop_interval",     "Loop Interval (sec)",        float),
     ]
 
     def __init__(self, parent):
@@ -476,6 +597,8 @@ class SettingsDialog(tk.Toplevel):
 
     def _on_save(self):
         old_hotkey = config["auto_hotkey"]
+        old_full_hotkey = config["full_auto_hotkey"]
+        old_loop_hotkey = config["loop_hotkey"]
         for key, label, typ in self.TEXT_FIELDS:
             raw = self.entries[key].get().strip()
             try:
@@ -499,6 +622,17 @@ class SettingsDialog(tk.Toplevel):
                 config["auto_hotkey"],
                 lambda: threading.Thread(target=auto_smalltalk, daemon=True).start(),
             )
+
+        if config["full_auto_hotkey"] != old_full_hotkey:
+            keyboard.remove_hotkey(old_full_hotkey)
+            keyboard.add_hotkey(
+                config["full_auto_hotkey"],
+                lambda: threading.Thread(target=full_auto_smalltalk, daemon=True).start(),
+            )
+
+        if config["loop_hotkey"] != old_loop_hotkey:
+            keyboard.remove_hotkey(old_loop_hotkey)
+            keyboard.add_hotkey(config["loop_hotkey"], toggle_loop)
 
         if gui_app is not None:
             gui_app.refresh_auto_label()
@@ -541,13 +675,14 @@ class MainWindow(tk.Tk):
         self._update_auto_label_text()
         auto_label = tk.Label(
             self, textvariable=self.auto_label_var,
-            font=("Arial", 12, "bold"), bg=BG, fg="#7ec87e",
+            font=("Arial", 11, "bold"), bg=BG, fg="#7ec87e",
         )
         auto_label.pack(pady=(8, 2))
 
         auto_desc = tk.Label(
             self,
-            text="OCR detects the phrase on screen, clicks input, types, and submits.",
+            text=("F1: OCR + type + submit  |  "
+                  "F2: full auto (once)  |  F3: full auto loop"),
             font=("Arial", 9), bg=BG, fg="#aaaaaa", wraplength=500,
         )
         auto_desc.pack(pady=(0, 6))
@@ -562,7 +697,7 @@ class MainWindow(tk.Tk):
 
         # ── Status bar ──
         self.status_var = tk.StringVar(
-            value=f"Ready — press {config['auto_hotkey']} near an NPC dialog")
+            value=f"Ready — {config['auto_hotkey']}: OCR only | {config['full_auto_hotkey']}: full auto")
         self.status_label = tk.Label(
             self, textvariable=self.status_var, font=("Consolas", 10),
             bg="#1e1e1e", fg="#cccccc", anchor="w", padx=8, pady=4,
@@ -574,7 +709,9 @@ class MainWindow(tk.Tk):
 
     def _update_auto_label_text(self):
         self.auto_label_var.set(
-            f"Auto-smalltalk hotkey:  [ {config['auto_hotkey']} ]")
+            f"[ {config['auto_hotkey']} ] OCR    "
+            f"[ {config['full_auto_hotkey']} ] Full    "
+            f"[ {config['loop_hotkey']} ] Loop")
 
     def refresh_auto_label(self):
         self._update_auto_label_text()
