@@ -1,3 +1,8 @@
 keyboard
 pyautogui
 pyqt6
+easyocr
+rapidfuzz
+mss
+numpy
+Pillow
